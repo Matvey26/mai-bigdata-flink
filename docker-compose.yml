@@ -1,0 +1,70 @@
+services:
+  kafka:
+    image: apache/kafka:3.7.1
+    environment:
+      # KRaft (без Zookeeper)
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "controller,broker"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: "kraft-cluster-1"
+    ports:
+      - "9094:9094"
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: lab
+      POSTGRES_USER: lab
+      POSTGRES_PASSWORD: lab
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+
+  jobmanager:
+    image: flink:1.18-scala_2.12-java11
+    ports:
+      - "8081:8081"
+    entrypoint: ["bash", "-c", "cp /extra-jars/*.jar /opt/flink/lib/ 2>/dev/null; exec /docker-entrypoint.sh jobmanager"]
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+    volumes:
+      - ./flink_job.sql:/opt/flink/flink_job.sql:ro
+      - ./jars:/extra-jars:ro
+
+  taskmanager:
+    image: flink:1.18-scala_2.12-java11
+    depends_on: [jobmanager]
+    entrypoint: ["bash", "-c", "cp /extra-jars/*.jar /opt/flink/lib/ 2>/dev/null; exec /docker-entrypoint.sh taskmanager"]
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+    volumes:
+      - ./jars:/extra-jars:ro
+
+  producer:
+    image: python:3.11-slim
+    depends_on: [kafka]
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      KAFKA_TOPIC: sales
+      DATA_DIR: "исходные данные"
+    command: >
+      bash -c "pip install --no-cache-dir kafka-python==2.0.2 &&
+               sleep 15 &&
+               python extract.py"
