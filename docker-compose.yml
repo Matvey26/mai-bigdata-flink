@@ -30,7 +30,9 @@ services:
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
 
   jobmanager:
-    image: flink:1.18-scala_2.12-java11
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
     ports:
       - "8081:8081"
     entrypoint: ["bash", "-c", "cp /extra-jars/*.jar /opt/flink/lib/ 2>/dev/null; exec /docker-entrypoint.sh jobmanager"]
@@ -39,11 +41,13 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
     volumes:
-      - ./flink_job.sql:/opt/flink/flink_job.sql:ro
+      - ./flink_job.py:/opt/flink/flink_job.py:ro
       - ./jars:/extra-jars:ro
 
   taskmanager:
-    image: flink:1.18-scala_2.12-java11
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
     depends_on: [jobmanager]
     entrypoint: ["bash", "-c", "cp /extra-jars/*.jar /opt/flink/lib/ 2>/dev/null; exec /docker-entrypoint.sh taskmanager"]
     environment:

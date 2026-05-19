@@ -40,10 +40,31 @@
 
 ## Как запустить
 
-### 1. Поднять всю инфраструктуру
+### 1. Скачать jar-коннекторы для Flink DataStream
+
+Положить в папку `./jars/` рядом с `docker-compose.yml`:
+
+- `flink-sql-connector-kafka-3.1.0-1.18.jar`
+- `flink-connector-jdbc-3.1.2-1.18.jar`
+- `postgresql-42.7.3.jar`
+
+```
+mkdir -p jars && cd jars
+
+# Kafka connector (Flink 1.18)
+curl -LO https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar
+
+# JDBC connector
+curl -LO https://repo1.maven.org/maven2/org/apache/flink/flink-connector-jdbc/3.1.2-1.18/flink-connector-jdbc-3.1.2-1.18.jar
+
+# PostgreSQL JDBC driver
+curl -LO https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.3/postgresql-42.7.3.jar
+```
+
+### 2. Поднять всю инфраструктуру
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Поднимаются: Kafka в KRaft-режиме без Zookeeper (на `localhost:9094` снаружи),
@@ -55,37 +76,26 @@ PostgreSQL автоматически создаст таблицы из `schema
 Сервис `producer` запустит `extract.py`, который читает все csv из `исходные данные/`
 и отправляет каждую строку как json в kafka-топик `sales`.
 
-### 2. Скачать jar-коннекторы для Flink
-
-Положить в папку `./jars/` рядом с `docker-compose.yml`:
-
-- `flink-sql-connector-kafka-3.1.0-1.18.jar`
-- `flink-connector-jdbc-3.1.2-1.18.jar`
-- `postgresql-42.7.3.jar`
-
-```
-mkdir -p jars && cd jars
-
-# Kafka SQL connector (Flink 1.18)
-curl -LO https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar
-
-# JDBC connector
-curl -LO https://repo1.maven.org/maven2/org/apache/flink/flink-connector-jdbc/3.1.2-1.18/flink-connector-jdbc-3.1.2-1.18.jar
-
-# PostgreSQL JDBC driver
-curl -LO https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.3/postgresql-42.7.3.jar
-```
-
 ### 3. Запустить Flink-джобу
 
+Джоба написана на PyFlink DataStream API в `flink_job.py`: читает Kafka-топик
+`sales`, разбирает json, ветвится на потоки измерений/фактов, дедуплицирует
+измерения через `key_by` + `KeyedProcessFunction` с `ValueState` и пишет
+результат в PostgreSQL через DataStream JDBC sink.
+
 ```bash
-docker compose exec jobmanager ./bin/sql-client.sh -f /opt/flink/flink_job.sql
+docker compose exec jobmanager ./bin/flink run -d -py /opt/flink/flink_job.py
 ```
 
 ### 4. Проверить результат
 
 ```bash
 docker compose exec postgres psql -U lab -d lab -c "SELECT count(*) FROM fact_sales;"
+docker compose exec postgres psql -U lab -d lab -c "SELECT count(*) FROM dim_customer;"
+docker compose exec postgres psql -U lab -d lab -c "SELECT count(*) FROM dim_seller;"
+docker compose exec postgres psql -U lab -d lab -c "SELECT count(*) FROM dim_product;"
+docker compose exec postgres psql -U lab -d lab -c "SELECT count(*) FROM dim_store;"
+docker compose exec postgres psql -U lab -d lab -c "SELECT count(*) FROM dim_supplier;"
 ```
 
 ### Локальный запуск продюсера (без docker)
